@@ -9,7 +9,7 @@
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝╚══════╝╚═╝
 ```
 
-**v2.1.0** | made by **or4acle**
+**v2.2.0** | made by **or4acle**
 
 > *For educational purposes only.*
 
@@ -179,6 +179,8 @@ Config is stored in `~/.gooningcli/config.json`:
 | `max_workers` | `5` | Concurrent download threads |
 | `proxy` | `""` | HTTP/SOCKS5 proxy URL |
 | `rate_limit` | `0.5` | Delay between requests (seconds) |
+| `default_site` | `all` | Default site for search (nhentai/gelbooru/danbooru/konachan/all) |
+| `nhentai_mirrors` | `["nhentai.net"]` | nhentai mirrors to try in order |
 | `auto_zip` | `false` | Auto-zip manga galleries after download |
 | `auto_cbz` | `false` | Auto-create CBZ archives after download |
 | `notify` | `true` | Android notifications (Termux only) |

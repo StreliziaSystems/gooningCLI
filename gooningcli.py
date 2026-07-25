@@ -54,7 +54,7 @@ except ImportError:
 # CONSTANTS
 # ============================================================
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 AUTHOR = "or4acle"
 APP_NAME = "gooningCLI"
 CONFIG_DIR = os.path.expanduser("~/.gooningcli")
@@ -424,7 +424,7 @@ def create_session() -> requests.Session:
         session.proxies = {"http": proxy, "https": proxy}
         DLog.log(f"Proxy configured: {proxy}")
 
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -1254,7 +1254,7 @@ class DanbooruDownloader:
 
     def __init__(self):
         self.session = create_session()
-        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/or4acle/gooningCLI)"
+        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/StreliziaSystems/gooningCLI)"
         self.max_workers = cfg.config.get("max_workers", 5)
         self.rate_limit = cfg.config.get("rate_limit", 0.5)
 
@@ -1371,7 +1371,7 @@ class KonachanDownloader:
 
     def __init__(self):
         self.session = create_session()
-        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/or4acle/gooningCLI)"
+        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/StreliziaSystems/gooningCLI)"
         self.max_workers = cfg.config.get("max_workers", 5)
         self.rate_limit = cfg.config.get("rate_limit", 0.5)
 
@@ -1705,12 +1705,15 @@ def cmd_random():
     output_dir = input_prompt("Download directory", cfg.config.get("download_dir", DEFAULT_DOWNLOAD_DIR))
     os.makedirs(output_dir, exist_ok=True)
     try:
-        dl.download_gallery(0, output_dir)
         gallery = dl.get_random()
         if gallery:
             gid = gallery.get("id")
             if gid:
                 dl.download_gallery(gid, output_dir)
+            else:
+                cprint("  [!] Random gallery has no ID", THEME["error"])
+        else:
+            cprint("  [!] Failed to get random gallery", THEME["error"])
     except Exception as e:
         cprint(f"  [!] Error: {e}", THEME["error"])
 
@@ -2257,6 +2260,11 @@ def cmd_config_set(args: list[str]):
 
     key, value = args[0], " ".join(args[1:])
     if key in cfg.config:
+        if key == "theme":
+            if value not in THEMES:
+                cprint(f"  [!] Unknown theme: {value}", THEME["error"])
+                cprint(f"  Available: {', '.join(THEMES.keys())}", THEME["text"])
+                return
         old_type = type(cfg.config[key])
         try:
             if old_type == bool:
@@ -2335,9 +2343,14 @@ def cmd_update():
 
 
 def cmd_shell(args: list[str]):
+    if not cfg.config.get("debug", False):
+        cprint("  [!] Shell requires Developer Mode to be enabled.", THEME["error"])
+        cprint("  Enable it via [18] Developer Mode or --debug flag.", THEME["text"])
+        return
     if not args:
         cprint("  Usage: shell <command>", THEME["text"])
         return
+    cprint(f"  [!] Running: {' '.join(args)}", THEME["warning"])
     try:
         result = subprocess.run(args, capture_output=False, timeout=30)
     except FileNotFoundError:
@@ -2400,21 +2413,25 @@ def cmd_help():
         ("proxy", "Set proxy"),
         ("devmode", "Toggle developer mode (verbose logging)"),
         ("update", "Update via git pull"),
-        ("shell", "Run shell command"),
+        ("shell *", "Run shell command (dev mode only)"),
         ("help", "Show this help"),
     ]
 
     for cmd, desc in commands:
         cprint(f"    {cmd:<20} {desc}", THEME["text"])
     print()
+    cprint("    * shell requires Developer Mode enabled", THEME["warning"])
+    print()
 
     cprint("  Supported sites:", THEME["accent"])
-    cprint("    nhentai.net       Manga/Doujinshi (API)", THEME["text"])
-    cprint("    hanime.tv         Videos", THEME["text"])
-    cprint("    hentaihaven.xxx   Videos (yt-dlp)", THEME["text"])
-    cprint("    rule34.xxx        Image board (API)", THEME["text"])
-    cprint("    gelbooru.com      Image board (API)", THEME["text"])
-    cprint("    hitomi.la         Manga/Doujinshi", THEME["text"])
+    cprint("    nhentai.net          Manga/Doujinshi (API)", THEME["text"])
+    cprint("    hanime.tv            Videos", THEME["text"])
+    cprint("    hentaihaven.xxx      Videos (yt-dlp)", THEME["text"])
+    cprint("    rule34.xxx           Image board (API)", THEME["text"])
+    cprint("    gelbooru.com         Image board (API)", THEME["text"])
+    cprint("    hitomi.la            Manga/Doujinshi", THEME["text"])
+    cprint("    danbooru.donmai.us   Image board (no auth)", THEME["text"])
+    cprint("    konachan.com         Image board (no auth)", THEME["text"])
     print()
 
 
@@ -2489,7 +2506,8 @@ def _cbz_folder(folder_path: str):
         for root, _, files in os.walk(folder_path):
             for f in sorted(files):
                 fpath = os.path.join(root, f)
-                zf.write(fpath, f)
+                arcname = os.path.relpath(fpath, os.path.dirname(folder_path))
+                zf.write(fpath, arcname)
     cprint(f"  [+] CBZ: {cbz_path}", THEME["success"])
 
 # ============================================================
