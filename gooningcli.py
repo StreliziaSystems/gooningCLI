@@ -13,11 +13,13 @@ import subprocess
 import shutil
 import signal
 import platform
+import traceback
+import logging
 from pathlib import Path
 from typing import Optional, Any
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote_plus
 
 try:
     import requests
@@ -52,7 +54,7 @@ except ImportError:
 # CONSTANTS
 # ============================================================
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 AUTHOR = "or4acle"
 APP_NAME = "gooningCLI"
 CONFIG_DIR = os.path.expanduser("~/.gooningcli")
@@ -130,12 +132,15 @@ BANNER = r"""
 SITES = {
     "1": {"name": "nhentai", "desc": "nhentai.net - Manga/Doujinshi", "type": "manga"},
     "2": {"name": "hanime", "desc": "hanime.tv - Videos", "type": "video"},
-    "3": {"name": "hentaihaven", "desc": "hentaihaven.xxx - Videos", "type": "video"},
-    "4": {"name": "nhentai-lolicon", "desc": "nhentai.net - Lolicon tag", "type": "manga"},
-    "5": {"name": "nhentai-incest", "desc": "nhentai.net - Incest tag", "type": "manga"},
-    "6": {"name": "nhentai-urethra", "desc": "nhentai.net - Urethra tag", "type": "manga"},
-    "7": {"name": "nhentai-traphouse", "desc": "nhentai.net - Traphouse tag", "type": "manga"},
-    "8": {"name": "all", "desc": "All supported sites", "type": "all"},
+    "3": {"name": "hentaihaven", "desc": "hentaihaven.xxx - Videos (yt-dlp)", "type": "video"},
+    "4": {"name": "rule34", "desc": "rule34.xxx - Image board (API)", "type": "image"},
+    "5": {"name": "gelbooru", "desc": "gelbooru.com - Image board (API)", "type": "image"},
+    "6": {"name": "hitomi", "desc": "hitomi.la - Manga/Doujinshi", "type": "manga"},
+    "7": {"name": "danbooru", "desc": "danbooru.donmai.us - Image board (no auth)", "type": "image"},
+    "8": {"name": "konachan", "desc": "konachan.com - Image board (no auth)", "type": "image"},
+    "9": {"name": "nhentai-lolicon", "desc": "nhentai.net - Lolicon tag", "type": "manga"},
+    "10": {"name": "nhentai-incest", "desc": "nhentai.net - Incest tag", "type": "manga"},
+    "11": {"name": "all", "desc": "All supported sites", "type": "all"},
 }
 
 THEMES = {
@@ -171,6 +176,7 @@ class ConfigManager:
             "auto_zip": False,
             "auto_cbz": False,
             "notify": True,
+            "debug": False,
         })
         self.history = self._load(HISTORY_FILE, {"downloads": []})
         self.bookmarks = self._load(BOOKMARKS_FILE, {"bookmarks": []})
@@ -237,6 +243,73 @@ cfg = ConfigManager()
 THEME = THEMES.get(cfg.config.get("theme", "default"), THEMES["default"])
 
 
+# ============================================================
+# DEBUG LOGGER
+# ============================================================
+
+class DLog:
+    """Developer mode logger. Outputs to terminal AND logs to file when debug is enabled."""
+
+    LOG_FILE = os.path.join(CONFIG_DIR, "debug.log")
+
+    @staticmethod
+    def _write_file(level: str, msg: str):
+        if not DLog.is_enabled():
+            return
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            with open(DLog.LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] [{level}] {msg}\n")
+        except Exception:
+            pass
+
+    @staticmethod
+    def is_enabled() -> bool:
+        return cfg.config.get("debug", False)
+
+    @staticmethod
+    def log(msg: str):
+        if DLog.is_enabled():
+            cprint(f"  [DEBUG] {msg}", Fore.BLUE if HAS_COLOR else "")
+            DLog._write_file("DEBUG", msg)
+
+    @staticmethod
+    def request(method: str, url: str, status: int = 0, elapsed: float = 0, extra: str = ""):
+        if DLog.is_enabled():
+            status_str = f" -> {status}" if status else ""
+            time_str = f" ({elapsed:.1f}ms)" if elapsed else ""
+            extra_str = f" | {extra}" if extra else ""
+            line = f"  [HTTP] {method} {url}{status_str}{time_str}{extra_str}"
+            cprint(line, Fore.BLUE if HAS_COLOR else "")
+            DLog._write_file("HTTP", f"{method} {url}{status_str}{time_str}{extra_str}")
+
+    @staticmethod
+    def error(msg: str, exc: Exception = None):
+        if DLog.is_enabled():
+            cprint(f"  [ERROR] {msg}", Fore.RED if HAS_COLOR else "")
+            tb_str = ""
+            if exc:
+                for line in traceback.format_exception(type(exc), exc, exc.__traceback__):
+                    for sub in line.strip().split("\n"):
+                        cprint(f"    {sub}", Fore.RED if HAS_COLOR else "")
+                        tb_str += sub + "\n"
+            DLog._write_file("ERROR", f"{msg}\n{tb_str}")
+
+    @staticmethod
+    def file(op: str, path: str, size: int = 0):
+        if DLog.is_enabled():
+            size_str = f" ({size} bytes)" if size else ""
+            cprint(f"  [FILE] {op}: {path}{size_str}", Fore.BLUE if HAS_COLOR else "")
+            DLog._write_file("FILE", f"{op}: {path}{size_str}")
+
+    @staticmethod
+    def info(msg: str):
+        if DLog.is_enabled():
+            cprint(f"  [INFO] {msg}", Fore.BLUE if HAS_COLOR else "")
+            DLog._write_file("INFO", msg)
+
+
 def cprint(text: str, color: str = ""):
     if HAS_COLOR and color:
         print(f"{color}{text}{Style.RESET_ALL}")
@@ -249,6 +322,9 @@ def show_banner():
     cprint(BANNER, THEME["header"])
     cprint(f"  v{VERSION}", THEME["warning"])
     cprint(f"  made by {AUTHOR}", THEME["accent"])
+    if cfg.config.get("debug", False):
+        cprint("  [DEV MODE]", THEME["error"])
+        cprint(f"  Log: {DLog.LOG_FILE}", THEME["text"])
     splash = SPLASH_TEXTS[hash(str(time.time())) % len(SPLASH_TEXTS)]
     cprint(f'  "{splash}"', THEME["text"])
     print()
@@ -263,10 +339,16 @@ def input_prompt(msg: str, default: str = "") -> str:
 def retry_with_backoff(func, max_retries: int = 3, base_delay: float = 2.0, description: str = ""):
     last_err = None
     for attempt in range(max_retries):
+        start = time.time()
         try:
-            return func()
+            result = func()
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", description or "request", elapsed=elapsed)
+            return result
         except requests.exceptions.HTTPError as e:
+            elapsed = (time.time() - start) * 1000
             status = getattr(e.response, "status_code", 0)
+            DLog.error(f"HTTP {status} on {description} (attempt {attempt + 1}/{max_retries}, {elapsed:.0f}ms)", e)
             if status == 429:
                 delay = base_delay * (2 ** attempt)
                 cprint(f"  [!] Rate limited. Waiting {delay:.0f}s...", THEME["warning"])
@@ -283,11 +365,15 @@ def retry_with_backoff(func, max_retries: int = 3, base_delay: float = 2.0, desc
             raise
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             delay = base_delay * (2 ** attempt)
+            DLog.error(f"Connection error on {description} (attempt {attempt + 1}/{max_retries})", e)
             if description:
                 cprint(f"  [!] Connection error on {description}. Retry in {delay:.0f}s...", THEME["warning"])
             time.sleep(delay)
             last_err = e
             continue
+        except Exception as e:
+            DLog.error(f"Unexpected error on {description}", e)
+            raise
     if last_err:
         raise last_err
 
@@ -336,6 +422,7 @@ def create_session() -> requests.Session:
     proxy = cfg.config.get("proxy", "")
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
+        DLog.log(f"Proxy configured: {proxy}")
 
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
@@ -365,14 +452,18 @@ class NHentaiDownloader:
         params: dict[str, Any] = {"query": query, "page": page}
         if sort:
             params["sort"] = sort
+        DLog.info(f"nhentai search: query={query}, page={page}, sort={sort}")
         r = retry_with_backoff(
             lambda: self.session.get(f"{self.API_BASE}/search", params=params, timeout=15),
             description=f"search '{query}'"
         )
         r.raise_for_status()
-        return r.json()
+        data = r.json()
+        DLog.info(f"nhentai search returned {len(data.get('result', []))} results, total={data.get('total', 0)}")
+        return data
 
     def get_gallery(self, gallery_id: int) -> dict:
+        DLog.info(f"nhentai get_gallery: id={gallery_id}")
         r = retry_with_backoff(
             lambda: self.session.get(f"{self.API_BASE}/galleries/{gallery_id}", timeout=15),
             description=f"gallery {gallery_id}"
@@ -413,18 +504,28 @@ class NHentaiDownloader:
         ext = url.split(".")[-1].split("?")[0]
         filepath = os.path.join(output_dir, f"{i + 1:03d}.{ext}")
         if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            DLog.log(f"Skipped (exists): {filepath}")
             return (i, True)
         try:
+            DLog.request("GET", url)
+            start = time.time()
             r = self.session.get(url, timeout=30)
+            elapsed = (time.time() - start) * 1000
             r.raise_for_status()
             content_length = int(r.headers.get("content-length", 0))
             with open(filepath, "wb") as f:
                 f.write(r.content)
-            if content_length and os.path.getsize(filepath) != content_length:
+            actual_size = os.path.getsize(filepath)
+            DLog.file("WRITE", filepath, actual_size)
+            DLog.request("GET", url, status=r.status_code, elapsed=elapsed,
+                        extra=f"size={actual_size}, expected={content_length}")
+            if content_length and actual_size != content_length:
+                DLog.error(f"Size mismatch: got {actual_size}, expected {content_length} for {url}")
                 os.remove(filepath)
                 return (i, False)
             return (i, True)
-        except Exception:
+        except Exception as e:
+            DLog.error(f"Download failed: {url}", e)
             if os.path.exists(filepath):
                 os.remove(filepath)
             return (i, False)
@@ -542,39 +643,49 @@ class HanimeDownloader:
 
     def search(self, query: str) -> list[dict]:
         results = []
-        for endpoint in ["/api/v2/search", "/search"]:
+        DLog.info(f"hanime search: query={query}")
+        for endpoint in ["/api/v2/search", "/api/v1/search", "/search", "/search/query"]:
             try:
-                if endpoint.startswith("/api"):
-                    r = self.session.get(f"{self.BASE_URL}{endpoint}", params={"q": query}, timeout=15)
-                    r.raise_for_status()
+                DLog.request("GET", f"{self.BASE_URL}{endpoint}?q={query}")
+                start = time.time()
+                r = self.session.get(f"{self.BASE_URL}{endpoint}", params={"q": query}, timeout=15)
+                elapsed = (time.time() - start) * 1000
+                DLog.request("GET", f"{self.BASE_URL}{endpoint}", status=r.status_code, elapsed=elapsed)
+                if r.status_code in (404, 500, 502, 503):
+                    DLog.info(f"hanime endpoint {endpoint} returned {r.status_code}, trying next")
+                    continue
+                r.raise_for_status()
+                try:
                     data = r.json()
-                    for item in data.get("results", data.get("data", []))[:20]:
-                        slug = item.get("slug", item.get("slug", ""))
+                    for item in data.get("results", data.get("data", data.get("videos", [])))[:20]:
+                        slug = item.get("slug", item.get("id", ""))
                         title = item.get("name", item.get("title", slug))
-                        results.append({"slug": slug, "title": title})
-                    if results:
-                        return results
-                else:
-                    r = self.session.get(f"{self.BASE_URL}{endpoint}", params={"q": query}, timeout=15)
-                    r.raise_for_status()
+                        if slug:
+                            results.append({"slug": slug, "title": title})
+                except (json.JSONDecodeError, ValueError):
                     if BeautifulSoup:
                         soup = BeautifulSoup(r.text, "html.parser")
                         for a in soup.select("a[href*='/watch/']"):
                             href = a.get("href", "")
                             slug = href.rstrip("/").split("/")[-1]
                             title = a.get_text(strip=True) or slug
-                            if slug:
+                            if slug and title and len(title) > 1:
                                 results.append({"slug": slug, "title": title})
-                        if results:
-                            return results[:20]
-            except Exception:
+                if results:
+                    return results[:20]
+            except Exception as e:
+                DLog.info(f"hanime endpoint {endpoint} failed: {e}")
                 continue
         return results
 
     def get_video_url(self, slug: str) -> Optional[str]:
         url = f"{self.BASE_URL}/watch/{slug}"
+        DLog.info(f"hanime get_video_url: slug={slug}, url={url}")
         try:
+            start = time.time()
             r = self.session.get(url, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", url, status=r.status_code, elapsed=elapsed)
             r.raise_for_status()
             if BeautifulSoup:
                 soup = BeautifulSoup(r.text, "html.parser")
@@ -587,7 +698,9 @@ class HanimeDownloader:
                     ]:
                         match = re.search(pattern, text)
                         if match:
-                            return match.group(1).replace("\\u0026", "&")
+                            vid_url = match.group(1).replace("\\u0026", "&")
+                            DLog.info(f"hanime found video URL (bs4): {vid_url[:80]}...")
+                            return vid_url
             html = r.text
             for pattern in [
                 r'"video_url"\s*:\s*"([^"]+)"',
@@ -596,8 +709,12 @@ class HanimeDownloader:
             ]:
                 match = re.search(pattern, html)
                 if match:
-                    return match.group(1).replace("\\u0026", "&")
+                    vid_url = match.group(1).replace("\\u0026", "&")
+                    DLog.info(f"hanime found video URL (regex): {vid_url[:80]}...")
+                    return vid_url
+            DLog.error(f"hanime: no video URL pattern matched for {slug}")
         except Exception as e:
+            DLog.error(f"hanime get_video_url failed: {slug}", e)
             cprint(f"  [!] Error fetching {slug}: {e}", THEME["error"])
         return None
 
@@ -613,10 +730,13 @@ class HanimeDownloader:
             return True
 
         cprint(f"  Downloading: {slug}", THEME["accent"])
+        DLog.request("GET", video_url, extra="stream=True")
         try:
+            start = time.time()
             r = self.session.get(video_url, timeout=120, stream=True)
             r.raise_for_status()
             total = int(r.headers.get("content-length", 0))
+            DLog.info(f"hanime video response: status={r.status_code}, content-length={total}")
             downloaded = 0
 
             with open(filepath, "wb") as f:
@@ -691,28 +811,52 @@ class HentaiHavenDownloader:
 
     def search(self, query: str) -> list[dict]:
         results = []
+        DLog.info(f"hentaihaven search: query={query}")
         try:
-            r = self.session.get(
-                self.BASE_URL,
-                params={"s": query, "post_type": "wp-manga"},
-                timeout=15
-            )
-            r.raise_for_status()
-            if BeautifulSoup:
-                soup = BeautifulSoup(r.text, "html.parser")
-                for a in soup.select("a[href]"):
-                    href = a.get("href", "")
-                    if "hentaihaven.xxx" in href and href.rstrip("/").count("/") >= 3:
+            for params in [
+                {"s": query, "post_type": "wp-manga"},
+                {"s": query},
+            ]:
+                DLog.request("GET", f"{self.BASE_URL}?s={query}")
+                start = time.time()
+                r = self.session.get(self.BASE_URL, params=params, timeout=15)
+                elapsed = (time.time() - start) * 1000
+                DLog.request("GET", self.BASE_URL, status=r.status_code, elapsed=elapsed)
+                r.raise_for_status()
+                if BeautifulSoup:
+                    soup = BeautifulSoup(r.text, "html.parser")
+                    for a in soup.select("a[href]"):
+                        href = a.get("href", "")
                         title = a.get_text(strip=True)
-                        slug = href.rstrip("/").split("/")[-2]
-                        if slug and title and len(title) > 2:
+                        if not title or len(title) < 3:
+                            continue
+                        if "hentaihaven" in href and "/series/" in href:
+                            slug = href.rstrip("/").split("/")[-1] or href.rstrip("/").split("/")[-2]
                             results.append({"slug": slug, "title": title, "url": href})
+                        elif "hentaihaven" in href and href.rstrip("/").count("/") >= 3:
+                            slug = href.rstrip("/").split("/")[-2] if href.endswith("/") else href.rstrip("/").split("/")[-1]
+                            if slug and slug not in ("www", "http:", "https:"):
+                                results.append({"slug": slug, "title": title, "url": href})
+                seen = set()
+                unique = []
+                for r_item in results:
+                    key = r_item.get("slug", r_item.get("url"))
+                    if key not in seen:
+                        seen.add(key)
+                        unique.append(r_item)
+                results = unique
+                if results:
+                    break
+            DLog.info(f"hentaihaven found {len(results)} results")
         except Exception as e:
+            DLog.error("hentaihaven search failed", e)
             cprint(f"  [!] Search error: {e}", THEME["error"])
         return results[:20]
 
     def _has_ytdlp(self) -> bool:
-        return shutil.which("yt-dlp") is not None
+        found = shutil.which("yt-dlp") is not None
+        DLog.info(f"hentaihaven yt-dlp available: {found}")
+        return found
 
     def search_and_download(self, query: str, count: int, output_dir: str):
         cprint(f"\n  [hentaihaven] Searching for '{query}'...", THEME["header"])
@@ -737,11 +881,17 @@ class HentaiHavenDownloader:
             time.sleep(self.rate_limit)
             url = item.get("url", f"{self.BASE_URL}/{item['slug']}/")
             cprint(f"  Downloading: {item['title'][:50]}", THEME["accent"])
+            DLog.info(f"yt-dlp URL: {url}")
             try:
                 result = subprocess.run(
                     ["yt-dlp", "-o", f"{output_dir}/%(title)s.%(ext)s", "--no-warnings", url],
                     capture_output=True, text=True, timeout=300
                 )
+                DLog.log(f"yt-dlp exit code: {result.returncode}")
+                if result.stdout:
+                    DLog.log(f"yt-dlp stdout: {result.stdout[:200]}")
+                if result.stderr:
+                    DLog.log(f"yt-dlp stderr: {result.stderr[:200]}")
                 if result.returncode == 0:
                     downloaded += 1
                     cfg.add_history({
@@ -754,6 +904,7 @@ class HentaiHavenDownloader:
                 else:
                     cprint(f"    [!] yt-dlp error: {result.stderr[:100]}", THEME["error"])
             except subprocess.TimeoutExpired:
+                DLog.error(f"yt-dlp timed out for {url}")
                 cprint(f"    [!] Download timed out", THEME["error"])
             except FileNotFoundError:
                 cprint("  [!] yt-dlp not found. Install: pip install yt-dlp", THEME["error"])
@@ -776,6 +927,10 @@ class NHentaiTagDownloader(NHentaiDownloader):
         cprint(f"\n  [nhentai:{self.tag_name}] Looking up tag...", THEME["header"])
         try:
             r = self.session.get(f"{self.API_BASE}/tags/tag/{self.tag_slug}", timeout=15)
+            if r.status_code == 404:
+                cprint(f"  [!] Tag '{self.tag_name}' not found on nhentai (404). Skipping.", THEME["warning"])
+                DLog.info(f"nhentai tag '{self.tag_slug}' returned 404")
+                return
             r.raise_for_status()
             tag_info = r.json()
         except Exception as e:
@@ -814,6 +969,693 @@ class NHentaiTagDownloader(NHentaiDownloader):
                 downloaded += 1
 
         cprint(f"\n  [nhentai:{self.tag_name}] Downloaded {downloaded} galleries", THEME["success"])
+
+
+# ============================================================
+# RULE34 DOWNLOADER (API)
+# ============================================================
+
+class Rule34Downloader:
+    API_BASE = "https://rule34.xxx/index.php"
+
+    def __init__(self):
+        self.session = create_session()
+        self.max_workers = cfg.config.get("max_workers", 5)
+        self.rate_limit = cfg.config.get("rate_limit", 0.5)
+
+    def search(self, query: str, limit: int = 100, pid: int = 1) -> list[dict]:
+        params = {
+            "page": "dapi",
+            "s": "post",
+            "q": "index",
+            "json": 1,
+            "limit": min(limit, 100),
+            "pid": pid,
+            "tags": query,
+        }
+        DLog.info(f"rule34 search: query={query}, limit={limit}, page={pid}")
+        try:
+            start = time.time()
+            r = self.session.get(self.API_BASE, params=params, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", self.API_BASE, status=r.status_code, elapsed=elapsed)
+            r.raise_for_status()
+            text = r.text.strip()
+            if not text or text == "null" or text == '""':
+                DLog.info("rule34: empty response")
+                return []
+            data = r.json()
+            if isinstance(data, str):
+                data = json.loads(data)
+            if isinstance(data, list):
+                posts = data
+            elif isinstance(data, dict):
+                posts = data.get("post", [])
+            elif data is None:
+                posts = []
+            else:
+                posts = []
+            DLog.info(f"rule34 returned {len(posts)} posts")
+            return posts if isinstance(posts, list) else []
+        except json.JSONDecodeError as e:
+            DLog.error(f"rule34: JSON decode error (response: {r.text[:200]})", e)
+            return []
+        except Exception as e:
+            DLog.error("rule34 search failed", e)
+            return []
+
+    def _download_one(self, args: tuple) -> tuple[int, bool]:
+        i, post, output_dir = args
+        file_url = post.get("file_url", "")
+        if not file_url:
+            return (i, False)
+
+        post_id = post.get("id", i)
+        ext = file_url.split(".")[-1].split("?")[0]
+        filepath = os.path.join(output_dir, f"rule34_{post_id}.{ext}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            DLog.log(f"Skipped (exists): {filepath}")
+            return (i, True)
+
+        try:
+            DLog.request("GET", file_url)
+            start = time.time()
+            r = self.session.get(file_url, timeout=30)
+            elapsed = (time.time() - start) * 1000
+            r.raise_for_status()
+            content_length = int(r.headers.get("content-length", 0))
+            with open(filepath, "wb") as f:
+                f.write(r.content)
+            actual_size = os.path.getsize(filepath)
+            DLog.file("WRITE", filepath, actual_size)
+            DLog.request("GET", file_url, status=r.status_code, elapsed=elapsed)
+            if content_length and actual_size != content_length:
+                DLog.error(f"Size mismatch for {file_url}")
+                os.remove(filepath)
+                return (i, False)
+            return (i, True)
+        except Exception as e:
+            DLog.error(f"rule34 download failed: {file_url}", e)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return (i, False)
+
+    def search_and_download(self, query: str, count: int, output_dir: str):
+        cprint(f"\n  [rule34] Searching for '{query}'...", THEME["header"])
+        posts = self.search(query, limit=count)
+        if not posts:
+            cprint("  [!] No results found", THEME["error"])
+            return
+
+        posts = posts[:count]
+        tags_set = set()
+        for p in posts:
+            for t in p.get("tags", "").split():
+                if t:
+                    tags_set.add(t)
+
+        if cfg.is_blacklisted(tags=list(tags_set)):
+            cprint("  [!] Results match blacklisted tags", THEME["warning"])
+            return
+
+        cprint(f"  Found {len(posts)} posts, downloading...", THEME["success"])
+
+        site_dir = os.path.join(output_dir, f"rule34_{query.replace(' ', '_')}")
+        os.makedirs(site_dir, exist_ok=True)
+
+        tasks = [(i, p, site_dir) for i, p in enumerate(posts)]
+        success = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._download_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                _, ok = future.result()
+                if ok:
+                    success += 1
+
+        cprint(f"  -> {success}/{len(posts)} images downloaded", THEME["success"])
+
+        for p in posts:
+            cfg.add_history({
+                "id": str(p.get("id", "")),
+                "site": "rule34",
+                "title": f"rule34 #{p.get('id', '?')}",
+                "tags": p.get("tags", "").split(),
+                "path": site_dir,
+                "type": "image",
+                "size": os.path.getsize(os.path.join(site_dir, f"rule34_{p.get('id')}.{p.get('file_url', '').split('.')[-1].split('?')[0]}"))
+                if os.path.exists(os.path.join(site_dir, f"rule34_{p.get('id')}.{p.get('file_url', '').split('.')[-1].split('?')[0]}")) else 0,
+            })
+
+
+# ============================================================
+# GELBOORU DOWNLOADER (API)
+# ============================================================
+
+class GelbooruDownloader:
+    API_BASE = "https://gelbooru.com/index.php"
+
+    def __init__(self):
+        self.session = create_session()
+        self.max_workers = cfg.config.get("max_workers", 5)
+        self.rate_limit = cfg.config.get("rate_limit", 0.5)
+
+    def search(self, query: str, limit: int = 20, pid: int = 1) -> list[dict]:
+        params = {
+            "page": "dapi",
+            "s": "post",
+            "q": "index",
+            "json": 1,
+            "limit": min(limit, 100),
+            "pid": pid,
+            "tags": query,
+        }
+        DLog.info(f"gelbooru search: query={query}, limit={limit}, page={pid}")
+        try:
+            start = time.time()
+            r = self.session.get(self.API_BASE, params=params, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", self.API_BASE, status=r.status_code, elapsed=elapsed)
+            if r.status_code == 401:
+                DLog.error("gelbooru: 401 Unauthorized - API may require auth key")
+                cprint("  [!] gelbooru: API requires authentication. Skipping.", THEME["warning"])
+                return []
+            if r.status_code == 403:
+                DLog.error("gelbooru: 403 Forbidden - IP may be blocked")
+                cprint("  [!] gelbooru: Access forbidden. Skipping.", THEME["warning"])
+                return []
+            r.raise_for_status()
+            text = r.text.strip()
+            if not text or text == "null":
+                return []
+            data = r.json()
+            if isinstance(data, dict):
+                posts = data.get("post", [])
+            elif isinstance(data, list):
+                posts = data
+            else:
+                posts = []
+            DLog.info(f"gelbooru returned {len(posts)} posts")
+            return posts if isinstance(posts, list) else []
+        except json.JSONDecodeError as e:
+            DLog.error("gelbooru: JSON decode error", e)
+            return []
+        except requests.exceptions.HTTPError as e:
+            status = getattr(e.response, "status_code", 0)
+            DLog.error(f"gelbooru: HTTP {status} error", e)
+            if status in (401, 403):
+                cprint(f"  [!] gelbooru: HTTP {status} - API key may be required", THEME["warning"])
+            return []
+        except Exception as e:
+            DLog.error("gelbooru search failed", e)
+            return []
+
+    def _download_one(self, args: tuple) -> tuple[int, bool]:
+        i, post, output_dir = args
+        file_url = post.get("file_url", "")
+        if not file_url:
+            return (i, False)
+
+        post_id = post.get("id", i)
+        ext = file_url.split(".")[-1].split("?")[0]
+        filepath = os.path.join(output_dir, f"gelbooru_{post_id}.{ext}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return (i, True)
+
+        try:
+            DLog.request("GET", file_url)
+            start = time.time()
+            r = self.session.get(file_url, timeout=30)
+            elapsed = (time.time() - start) * 1000
+            r.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(r.content)
+            DLog.file("WRITE", filepath, os.path.getsize(filepath))
+            DLog.request("GET", file_url, status=r.status_code, elapsed=elapsed)
+            return (i, True)
+        except Exception as e:
+            DLog.error(f"gelbooru download failed: {file_url}", e)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return (i, False)
+
+    def search_and_download(self, query: str, count: int, output_dir: str):
+        cprint(f"\n  [gelbooru] Searching for '{query}'...", THEME["header"])
+        posts = self.search(query, limit=count)
+        if not posts:
+            cprint("  [!] No results found", THEME["error"])
+            return
+
+        posts = posts[:count]
+        all_tags = set()
+        for p in posts:
+            for t in p.get("tags", "").split():
+                if t:
+                    all_tags.add(t)
+
+        if cfg.is_blacklisted(tags=list(all_tags)):
+            cprint("  [!] Results match blacklisted tags", THEME["warning"])
+            return
+
+        cprint(f"  Found {len(posts)} posts, downloading...", THEME["success"])
+
+        site_dir = os.path.join(output_dir, f"gelbooru_{query.replace(' ', '_')}")
+        os.makedirs(site_dir, exist_ok=True)
+
+        tasks = [(i, p, site_dir) for i, p in enumerate(posts)]
+        success = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._download_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                _, ok = future.result()
+                if ok:
+                    success += 1
+
+        cprint(f"  -> {success}/{len(posts)} images downloaded", THEME["success"])
+
+        for p in posts:
+            cfg.add_history({
+                "id": str(p.get("id", "")),
+                "site": "gelbooru",
+                "title": f"gelbooru #{p.get('id', '?')}",
+                "tags": p.get("tags", "").split(),
+                "path": site_dir,
+                "type": "image",
+            })
+
+
+# ============================================================
+# DANBOORU DOWNLOADER (no auth required for read)
+# ============================================================
+
+class DanbooruDownloader:
+    API_BASE = "https://danbooru.donmai.us"
+
+    def __init__(self):
+        self.session = create_session()
+        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/or4acle/gooningCLI)"
+        self.max_workers = cfg.config.get("max_workers", 5)
+        self.rate_limit = cfg.config.get("rate_limit", 0.5)
+
+    def search(self, query: str, limit: int = 20, page: int = 1) -> list[dict]:
+        params = {
+            "tags": query,
+            "limit": min(limit, 200),
+            "page": page,
+        }
+        DLog.info(f"danbooru search: query={query}, limit={limit}, page={page}")
+        try:
+            start = time.time()
+            r = self.session.get(f"{self.API_BASE}/posts.json", params=params, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", f"{self.API_BASE}/posts.json", status=r.status_code, elapsed=elapsed)
+            r.raise_for_status()
+            data = r.json()
+            posts = data if isinstance(data, list) else []
+            DLog.info(f"danbooru returned {len(posts)} posts")
+            return posts
+        except json.JSONDecodeError as e:
+            DLog.error("danbooru: JSON decode error", e)
+            return []
+        except requests.exceptions.HTTPError as e:
+            status = getattr(e.response, "status_code", 0)
+            DLog.error(f"danbooru: HTTP {status} error", e)
+            cprint(f"  [!] danbooru: HTTP {status}", THEME["warning"])
+            return []
+        except Exception as e:
+            DLog.error("danbooru search failed", e)
+            return []
+
+    def _download_one(self, args: tuple) -> tuple[int, bool]:
+        i, post, output_dir = args
+        file_url = post.get("file_url") or post.get("large_file_url") or ""
+        if not file_url:
+            return (i, False)
+
+        post_id = post.get("id", i)
+        ext = file_url.split(".")[-1].split("?")[0] or "jpg"
+        filepath = os.path.join(output_dir, f"danbooru_{post_id}.{ext}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return (i, True)
+
+        try:
+            DLog.request("GET", file_url)
+            start = time.time()
+            r = self.session.get(file_url, timeout=30)
+            elapsed = (time.time() - start) * 1000
+            r.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(r.content)
+            DLog.file("WRITE", filepath, os.path.getsize(filepath))
+            DLog.request("GET", file_url, status=r.status_code, elapsed=elapsed)
+            return (i, True)
+        except Exception as e:
+            DLog.error(f"danbooru download failed: {file_url}", e)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return (i, False)
+
+    def search_and_download(self, query: str, count: int, output_dir: str):
+        cprint(f"\n  [danbooru] Searching for '{query}'...", THEME["header"])
+        posts = self.search(query, limit=count)
+        if not posts:
+            cprint("  [!] No results found", THEME["error"])
+            return
+
+        posts = posts[:count]
+        all_tags = set()
+        for p in posts:
+            for t in p.get("tag_string", "").split():
+                if t:
+                    all_tags.add(t)
+
+        if cfg.is_blacklisted(tags=list(all_tags)):
+            cprint("  [!] Results match blacklisted tags", THEME["warning"])
+            return
+
+        cprint(f"  Found {len(posts)} posts, downloading...", THEME["success"])
+
+        site_dir = os.path.join(output_dir, f"danbooru_{query.replace(' ', '_')}")
+        os.makedirs(site_dir, exist_ok=True)
+
+        tasks = [(i, p, site_dir) for i, p in enumerate(posts)]
+        success = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._download_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                _, ok = future.result()
+                if ok:
+                    success += 1
+
+        cprint(f"  -> {success}/{len(posts)} images downloaded", THEME["success"])
+
+        for p in posts:
+            cfg.add_history({
+                "id": str(p.get("id", "")),
+                "site": "danbooru",
+                "title": f"danbooru #{p.get('id', '?')}",
+                "tags": p.get("tag_string", "").split(),
+                "path": site_dir,
+                "type": "image",
+            })
+
+
+# ============================================================
+# KONACHAN DOWNLOADER (no auth required)
+# ============================================================
+
+class KonachanDownloader:
+    API_BASE = "https://konachan.com"
+
+    def __init__(self):
+        self.session = create_session()
+        self.session.headers["User-Agent"] = "gooningCLI/2.1 (https://github.com/or4acle/gooningCLI)"
+        self.max_workers = cfg.config.get("max_workers", 5)
+        self.rate_limit = cfg.config.get("rate_limit", 0.5)
+
+    def search(self, query: str, limit: int = 20, page: int = 1) -> list[dict]:
+        params = {
+            "tags": query,
+            "limit": min(limit, 200),
+            "page": page,
+        }
+        DLog.info(f"konachan search: query={query}, limit={limit}, page={page}")
+        try:
+            start = time.time()
+            r = self.session.get(f"{self.API_BASE}/post.json", params=params, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", f"{self.API_BASE}/post.json", status=r.status_code, elapsed=elapsed)
+            r.raise_for_status()
+            data = r.json()
+            posts = data if isinstance(data, list) else []
+            DLog.info(f"konachan returned {len(posts)} posts")
+            return posts
+        except json.JSONDecodeError as e:
+            DLog.error("konachan: JSON decode error", e)
+            return []
+        except requests.exceptions.HTTPError as e:
+            status = getattr(e.response, "status_code", 0)
+            DLog.error(f"konachan: HTTP {status} error", e)
+            cprint(f"  [!] konachan: HTTP {status}", THEME["warning"])
+            return []
+        except Exception as e:
+            DLog.error("konachan search failed", e)
+            return []
+
+    def _download_one(self, args: tuple) -> tuple[int, bool]:
+        i, post, output_dir = args
+        file_url = post.get("file_url") or ""
+        if not file_url:
+            return (i, False)
+
+        post_id = post.get("id", i)
+        ext = file_url.split(".")[-1].split("?")[0] or "jpg"
+        filepath = os.path.join(output_dir, f"konachan_{post_id}.{ext}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return (i, True)
+
+        try:
+            DLog.request("GET", file_url)
+            start = time.time()
+            r = self.session.get(file_url, timeout=30)
+            elapsed = (time.time() - start) * 1000
+            r.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(r.content)
+            DLog.file("WRITE", filepath, os.path.getsize(filepath))
+            DLog.request("GET", file_url, status=r.status_code, elapsed=elapsed)
+            return (i, True)
+        except Exception as e:
+            DLog.error(f"konachan download failed: {file_url}", e)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return (i, False)
+
+    def search_and_download(self, query: str, count: int, output_dir: str):
+        cprint(f"\n  [konachan] Searching for '{query}'...", THEME["header"])
+        posts = self.search(query, limit=count)
+        if not posts:
+            cprint("  [!] No results found", THEME["error"])
+            return
+
+        posts = posts[:count]
+        all_tags = set()
+        for p in posts:
+            for t in p.get("tags", "").split():
+                if t:
+                    all_tags.add(t)
+
+        if cfg.is_blacklisted(tags=list(all_tags)):
+            cprint("  [!] Results match blacklisted tags", THEME["warning"])
+            return
+
+        cprint(f"  Found {len(posts)} posts, downloading...", THEME["success"])
+
+        site_dir = os.path.join(output_dir, f"konachan_{query.replace(' ', '_')}")
+        os.makedirs(site_dir, exist_ok=True)
+
+        tasks = [(i, p, site_dir) for i, p in enumerate(posts)]
+        success = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._download_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                _, ok = future.result()
+                if ok:
+                    success += 1
+
+        cprint(f"  -> {success}/{len(posts)} images downloaded", THEME["success"])
+
+        for p in posts:
+            cfg.add_history({
+                "id": str(p.get("id", "")),
+                "site": "konachan",
+                "title": f"konachan #{p.get('id', '?')}",
+                "tags": p.get("tags", "").split(),
+                "path": site_dir,
+                "type": "image",
+            })
+
+
+# ============================================================
+# HITOMI DOWNLOADER
+# ============================================================
+
+class HitomiDownloader:
+    BASE_URL = "https://hitomi.la"
+
+    def __init__(self):
+        self.session = create_session()
+        self.max_workers = cfg.config.get("max_workers", 5)
+        self.rate_limit = cfg.config.get("rate_limit", 0.5)
+
+    def search(self, query: str) -> list[dict]:
+        DLog.info(f"hitomi search: query={query}")
+        try:
+            start = time.time()
+            r = self.session.get(
+                f"{self.BASE_URL}/search",
+                params={"q": query},
+                timeout=15
+            )
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", f"{self.BASE_URL}/search", status=r.status_code, elapsed=elapsed)
+            r.raise_for_status()
+
+            results = []
+            if BeautifulSoup:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for a in soup.select("a"):
+                    href = a.get("href", "")
+                    if "/galleries/" in href and href != "#":
+                        title = a.get_text(strip=True)
+                        gid_match = re.search(r'/galleries/(\d+)', href)
+                        if gid_match and title and len(title) > 1:
+                            full_url = urljoin(self.BASE_URL, href)
+                            results.append({
+                                "id": gid_match.group(1),
+                                "title": title,
+                                "url": full_url,
+                            })
+
+            if not results:
+                DLog.info("hitomi: no results from HTML, trying embedded data...")
+                script_match = re.search(r'var\s+g\s*=\s*(\[.*?\]);', r.text)
+                if script_match:
+                    try:
+                        gallery_data = json.loads(script_match.group(1))
+                        for item in gallery_data[:20]:
+                            if isinstance(item, dict):
+                                results.append({
+                                    "id": str(item.get("id", "")),
+                                    "title": item.get("title", ""),
+                                    "url": f"{self.BASE_URL}/galleries/{item.get('id', '')}.html",
+                                })
+                    except json.JSONDecodeError:
+                        pass
+
+            DLog.info(f"hitomi found {len(results)} results")
+            if not results:
+                cprint("  [!] hitomi.la uses JavaScript rendering. Results may be limited.", THEME["warning"])
+            return results[:20]
+        except Exception as e:
+            DLog.error("hitomi search failed", e)
+            return []
+
+    def get_image_urls(self, gallery_id: str) -> list[str]:
+        DLog.info(f"hitomi get_images: id={gallery_id}")
+        try:
+            url = f"{self.BASE_URL}/galleries/{gallery_id}.html"
+            DLog.request("GET", url)
+            start = time.time()
+            r = self.session.get(url, timeout=15)
+            elapsed = (time.time() - start) * 1000
+            DLog.request("GET", url, status=r.status_code, elapsed=elapsed)
+            r.raise_for_status()
+
+            urls = []
+            if BeautifulSoup:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for img in soup.select("img"):
+                    src = img.get("src", "") or img.get("data-src", "")
+                    if not src:
+                        continue
+                    if any(x in src for x in ["//tn.hitomi.la/smalltn", "//bigimage"]):
+                        if src.startswith("//"):
+                            src = "https:" + src
+                        elif not src.startswith("http"):
+                            src = urljoin(self.BASE_URL, src)
+                        urls.append(src)
+
+                if not urls:
+                    for a in soup.select("a[href*='//bigimage']"):
+                        href = a.get("href", "")
+                        if href.startswith("//"):
+                            href = "https:" + href
+                        urls.append(href)
+
+            DLog.info(f"hitomi found {len(urls)} images")
+            return urls
+        except Exception as e:
+            DLog.error(f"hitomi get_images failed for {gallery_id}", e)
+            return []
+
+    def _download_one(self, args: tuple) -> tuple[int, bool]:
+        i, url, output_dir = args
+        ext = url.split(".")[-1].split("?")[0]
+        filepath = os.path.join(output_dir, f"{i + 1:03d}.{ext}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return (i, True)
+
+        try:
+            DLog.request("GET", url)
+            start = time.time()
+            r = self.session.get(url, timeout=30)
+            elapsed = (time.time() - start) * 1000
+            r.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(r.content)
+            DLog.file("WRITE", filepath, os.path.getsize(filepath))
+            return (i, True)
+        except Exception as e:
+            DLog.error(f"hitomi download failed: {url}", e)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return (i, False)
+
+    def search_and_download(self, query: str, count: int, output_dir: str):
+        cprint(f"\n  [hitomi] Searching for '{query}'...", THEME["header"])
+        results = self.search(query)
+        if not results:
+            cprint("  [!] No results found", THEME["error"])
+            return
+
+        cprint(f"  Found {len(results)} galleries:", THEME["success"])
+        for i, item in enumerate(results[:count]):
+            cprint(f"    {i + 1}. {item['title'][:60]}", THEME["text"])
+
+        downloaded = 0
+        for item in results[:count]:
+            if downloaded >= count:
+                break
+            time.sleep(self.rate_limit)
+            gallery_id = item["id"]
+            title = re.sub(r'[\\/:*?"<>|]', '_', item["title"])[:80]
+            images = self.get_image_urls(gallery_id)
+
+            if not images:
+                cprint(f"  [!] No images for {gallery_id}", THEME["warning"])
+                continue
+
+            gallery_dir = os.path.join(output_dir, f"hitomi_{gallery_id}_{title}")
+            os.makedirs(gallery_dir, exist_ok=True)
+
+            cprint(f"  [{gallery_id}] {title} ({len(images)} pages)", THEME["accent"])
+            tasks = [(i, url, gallery_dir) for i, url in enumerate(images)]
+            success = 0
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {executor.submit(self._download_one, t): t for t in tasks}
+                for future in as_completed(futures):
+                    _, ok = future.result()
+                    if ok:
+                        success += 1
+
+            cprint(f"    -> {success}/{len(images)} pages", THEME["success"])
+            if success > 0:
+                downloaded += 1
+                cfg.add_history({
+                    "id": gallery_id,
+                    "site": "hitomi",
+                    "title": item["title"],
+                    "path": gallery_dir,
+                    "type": "manga",
+                    "pages": len(images),
+                })
+
+        cprint(f"\n  [hitomi] Downloaded {downloaded} galleries", THEME["success"])
 
 
 # ============================================================
@@ -1408,6 +2250,7 @@ def cmd_config():
 
 
 def cmd_config_set(args: list[str]):
+    global THEME
     if len(args) < 2:
         cmd_config()
         return
@@ -1431,13 +2274,13 @@ def cmd_config_set(args: list[str]):
         cprint(f"  [+] {key} = {cfg.config[key]}", THEME["success"])
 
         if key == "theme":
-            global THEME
             THEME = THEMES.get(value, THEMES["default"])
     else:
         cprint(f"  [!] Unknown key: {key}", THEME["error"])
 
 
 def cmd_theme():
+    global THEME
     show_banner()
     cprint("  Available themes:", THEME["header"])
     for name in THEMES:
@@ -1448,7 +2291,6 @@ def cmd_theme():
     if name in THEMES:
         cfg.config["theme"] = name
         cfg.save_config()
-        global THEME
         THEME = THEMES[name]
         cprint(f"  [+] Theme set to '{name}'", THEME["success"])
     else:
@@ -1504,6 +2346,31 @@ def cmd_shell(args: list[str]):
         cprint("  [!] Command timed out", THEME["error"])
 
 
+def cmd_debug_toggle():
+    show_banner()
+    current = cfg.config.get("debug", False)
+    cprint(f"  Developer Mode: {'ON' if current else 'OFF'}", THEME["header"])
+
+    if current:
+        cprint("  Dev mode shows:", THEME["text"])
+        cprint("    - Full HTTP request/response details", THEME["text"])
+        cprint("    - File I/O operations with sizes", THEME["text"])
+        cprint("    - Full tracebacks on errors", THEME["text"])
+        cprint("    - API response summaries", THEME["text"])
+        cprint("    - Download timing information", THEME["text"])
+        print()
+
+    choice = input_prompt("  Toggle dev mode? (on/off)", "on" if not current else "off")
+    new_val = choice.lower() in ("on", "true", "1", "yes")
+    cfg.config["debug"] = new_val
+    cfg.save_config()
+    cprint(f"\n  [+] Developer Mode: {'ON' if new_val else 'OFF'}", THEME["success"])
+
+    if new_val:
+        cprint("  Warning: Dev mode prints sensitive info (URLs, file paths, etc.)", THEME["warning"])
+        cprint("  Use for debugging only, not in shared environments.", THEME["warning"])
+
+
 def cmd_help():
     show_banner()
     cprint("  === gooningCLI Help ===\n", THEME["header"])
@@ -1531,6 +2398,7 @@ def cmd_help():
         ("config set", "Change a config value"),
         ("theme", "Change CLI theme"),
         ("proxy", "Set proxy"),
+        ("devmode", "Toggle developer mode (verbose logging)"),
         ("update", "Update via git pull"),
         ("shell", "Run shell command"),
         ("help", "Show this help"),
@@ -1538,6 +2406,15 @@ def cmd_help():
 
     for cmd, desc in commands:
         cprint(f"    {cmd:<20} {desc}", THEME["text"])
+    print()
+
+    cprint("  Supported sites:", THEME["accent"])
+    cprint("    nhentai.net       Manga/Doujinshi (API)", THEME["text"])
+    cprint("    hanime.tv         Videos", THEME["text"])
+    cprint("    hentaihaven.xxx   Videos (yt-dlp)", THEME["text"])
+    cprint("    rule34.xxx        Image board (API)", THEME["text"])
+    cprint("    gelbooru.com      Image board (API)", THEME["text"])
+    cprint("    hitomi.la         Manga/Doujinshi", THEME["text"])
     print()
 
 
@@ -1550,8 +2427,8 @@ def select_sites() -> list[str]:
     for key, site in SITES.items():
         print(f"  {THEME['warning']}{key}{Style.RESET_ALL} - {site['desc']}")
 
-    choice = input_prompt("\nSelect site (number)", "8")
-    if choice == "8":
+    choice = input_prompt("\nSelect site (number)", "11")
+    if choice == "11":
         return [k for k in SITES if SITES[k]["type"] != "all"]
     if choice in SITES:
         return [choice]
@@ -1560,20 +2437,33 @@ def select_sites() -> list[str]:
 
 
 def _download_from_site(name: str, query: str, count: int, output_dir: str, sort: str = ""):
-    if name == "nhentai":
-        NHentaiDownloader().search_and_download(query, count, output_dir, sort)
-    elif name == "hanime":
-        HanimeDownloader().search_and_download(query, count, output_dir)
-    elif name == "hentaihaven":
-        HentaiHavenDownloader().search_and_download(query, count, output_dir)
-    elif name == "nhentai-lolicon":
-        NHentaiTagDownloader("lolicon", "lolicon").search_and_download(query, count, output_dir, sort)
-    elif name == "nhentai-incest":
-        NHentaiTagDownloader("incest", "incest").search_and_download(query, count, output_dir, sort)
-    elif name == "nhentai-urethra":
-        NHentaiTagDownloader("urethra", "urethra").search_and_download(query, count, output_dir, sort)
-    elif name == "nhentai-traphouse":
-        NHentaiTagDownloader("traphouse", "traphouse").search_and_download(query, count, output_dir, sort)
+    DLog.info(f"_download_from_site: site={name}, query={query}, count={count}")
+    try:
+        if name == "nhentai":
+            NHentaiDownloader().search_and_download(query, count, output_dir, sort)
+        elif name == "hanime":
+            HanimeDownloader().search_and_download(query, count, output_dir)
+        elif name == "hentaihaven":
+            HentaiHavenDownloader().search_and_download(query, count, output_dir)
+        elif name == "rule34":
+            Rule34Downloader().search_and_download(query, count, output_dir)
+        elif name == "gelbooru":
+            GelbooruDownloader().search_and_download(query, count, output_dir)
+        elif name == "danbooru":
+            DanbooruDownloader().search_and_download(query, count, output_dir)
+        elif name == "konachan":
+            KonachanDownloader().search_and_download(query, count, output_dir)
+        elif name == "hitomi":
+            HitomiDownloader().search_and_download(query, count, output_dir)
+        elif name == "nhentai-lolicon":
+            NHentaiTagDownloader("lolicon", "lolicon").search_and_download(query, count, output_dir, sort)
+        elif name == "nhentai-incest":
+            NHentaiTagDownloader("incest", "incest").search_and_download(query, count, output_dir, sort)
+        else:
+            cprint(f"  [!] Unknown site: {name}", THEME["error"])
+    except Exception as e:
+        DLog.error(f"Error on site {name}", e)
+        cprint(f"  [!] Error on {name}: {e}", THEME["error"])
 
 
 def _zip_folder(folder_path: str):
@@ -1611,7 +2501,8 @@ def interactive_loop():
 
     while True:
         try:
-            cprint("  === Main Menu ===\n", THEME["header"])
+            debug_status = f" [DEV MODE: ON]" if cfg.config.get("debug", False) else ""
+            cprint(f"  === Main Menu ==={debug_status}\n", THEME["header"])
             cprint("    [1]  Search & Download", THEME["text"])
             cprint("    [2]  Random Gallery", THEME["text"])
             cprint("    [3]  Gallery Info", THEME["text"])
@@ -1629,9 +2520,10 @@ def interactive_loop():
             cprint("    [15] Config", THEME["text"])
             cprint("    [16] Theme", THEME["text"])
             cprint("    [17] Proxy", THEME["text"])
-            cprint("    [18] Update", THEME["text"])
-            cprint("    [19] Shell", THEME["text"])
-            cprint("    [20] Help", THEME["text"])
+            cprint("    [18] Developer Mode", THEME["text"])
+            cprint("    [19] Update", THEME["text"])
+            cprint("    [20] Shell", THEME["text"])
+            cprint("    [21] Help", THEME["text"])
             cprint("    [0]  Exit\n", THEME["text"])
 
             choice = input_prompt("Select option", "1")
@@ -1697,12 +2589,14 @@ def interactive_loop():
             elif choice == "17":
                 cmd_proxy()
             elif choice == "18":
-                cmd_update()
+                cmd_debug_toggle()
             elif choice == "19":
+                cmd_update()
+            elif choice == "20":
                 cmdstr = input_prompt("Shell command")
                 if cmdstr:
                     cmd_shell(cmdstr.split())
-            elif choice == "20":
+            elif choice == "21":
                 cmd_help()
             elif choice == "0":
                 cprint("\n  Goodbye!", THEME["accent"])
@@ -1728,12 +2622,18 @@ def cli_main():
     parser.add_argument("--dir", "-d", default=None, help="Download directory")
     parser.add_argument("--sort", default="", help="Sort order")
     parser.add_argument("--version", "-v", action="store_true", help="Show version")
+    parser.add_argument("--debug", action="store_true", help="Enable developer mode (verbose logging)")
 
     parsed = parser.parse_args()
 
     if parsed.version:
         print(f"{APP_NAME} v{VERSION}")
         return
+
+    if parsed.debug:
+        cfg.config["debug"] = True
+        cfg.save_config()
+        DLog.log("Developer mode enabled via CLI flag")
 
     if not parsed.command:
         interactive_loop()
@@ -1798,3 +2698,11 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print()
         cprint("  Goodbye!", THEME["accent"])
+    except Exception as e:
+        if cfg.config.get("debug", False):
+            cprint("\n  [FATAL ERROR]", THEME["error"])
+            traceback.print_exc()
+        else:
+            cprint(f"\n  [!] Fatal error: {e}", THEME["error"])
+            cprint("  Run with --debug for full traceback.", THEME["warning"])
+        sys.exit(1)

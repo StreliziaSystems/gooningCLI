@@ -9,32 +9,40 @@
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝╚══════╝╚═╝
 ```
 
-**v2.0.0** | made by **or4acle**
+**v2.1.0** | made by **or4acle**
 
 > *For educational purposes only.*
 
-A multi-site hentai content downloader CLI built for Termux. Download manga, doujinshi, and videos from multiple sites with a single tool.
+A multi-site hentai content downloader CLI built for Termux. Download manga, doujinshi, images, and videos from multiple sites with a single tool.
 
 ---
 
 ## Supported Sites
 
-| Site | Type | Method |
-|------|------|--------|
-| nhentai.net | Manga/Doujinshi | API v2 |
-| hanime.tv | Videos | Scraping |
-| hentaihaven.xxx | Videos | yt-dlp |
-| nhentai (specific tags) | Manga | API v2 |
+| Site | Type | Method | Auth Required |
+|------|------|--------|---------------|
+| nhentai.net | Manga/Doujinshi | API v2 | No |
+| hanime.tv | Videos | Scraping | No |
+| hentaihaven.xxx | Videos | yt-dlp | No |
+| rule34.xxx | Images | API (posts.json) | Yes (API key) |
+| gelbooru.com | Images | API (JSON) | Yes (API key) |
+| hitomi.la | Manga/Doujinshi | HTML scraping | No |
+| **danbooru.donmai.us** | **Images** | **API (JSON)** | **No** |
+| **konachan.com** | **Images** | **API (JSON)** | **No** |
+| nhentai (tags) | Manga | API v2 (specific tags) | No |
 
 ---
 
 ## Features
 
-- **Multi-site support** - Download from nhentai, hanime, hentaihaven
+### Core
+- **Multi-site support** - 8 sites + tag-specific nhentai queries
 - **Concurrent downloads** - ThreadPoolExecutor for fast parallel image downloading
 - **Resilient networking** - Exponential backoff, retry on failure, rate limiting
 - **File validation** - Checks file size against Content-Length, retries incomplete downloads
-- **Smart server rotation** - Distributes requests across multiple nhentai image servers
+- **Smart server rotation** - Distributes requests across multiple image servers
+
+### Content Management
 - **Download history** - Track everything you've downloaded
 - **Bookmarks** - Save content to download later
 - **Blacklist** - Filter out unwanted tags or specific gallery IDs
@@ -42,14 +50,25 @@ A multi-site hentai content downloader CLI built for Termux. Download manga, dou
 - **Deduplication** - Find and remove duplicate files by hash
 - **Organize** - Sort download folders by site, date, or type
 - **Clean** - Remove empty folders, old downloads, or small files
+
+### Export & Viewing
 - **Export** - Export galleries as JSON metadata, CBZ (comic archive), or ZIP
 - **Batch mode** - Download from a text file with multiple search terms
 - **Slideshow** - View downloaded images in terminal (ASCII art) or open them
 - **Wallpaper** - Set downloaded images as Android wallpaper via Termux API
-- **Notifications** - Android notifications when downloads complete
+
+### Configuration
 - **Themes** - 6 built-in color themes (default, fire, ocean, matrix, mono, pink)
 - **Proxy support** - SOCKS5/HTTP proxy configuration
+- **Notifications** - Android notifications when downloads complete
 - **CLI arguments** - Use interactively or script with command-line args
+
+### Developer Mode
+- **Verbose logging** - Full HTTP request/response details with timing
+- **Error tracebacks** - Complete stack traces on failures
+- **File I/O logging** - See every file write with sizes
+- **API debugging** - Response summaries and search parameters
+- **Enable via** menu option [18] or `--debug` CLI flag
 
 ---
 
@@ -79,7 +98,7 @@ pkg install termux-api  # Optional: for notifications & wallpaper
 python gooningcli.py
 ```
 
-Opens a menu with all 20 commands. Just enter the number.
+Opens a menu with all commands. Just enter the number.
 
 ### Command Line Mode
 
@@ -93,10 +112,11 @@ python gooningcli.py random
 # View gallery info
 python gooningcli.py info 12345
 
-# View history
-python gooningcli.py history
+# Developer mode
+python gooningcli.py --debug search "futa" -n 5
 
-# View stats
+# View history/stats
+python gooningcli.py history
 python gooningcli.py stats
 ```
 
@@ -125,6 +145,7 @@ python gooningcli.py stats
 | `config` | View/set configuration |
 | `theme` | Change color theme |
 | `proxy` | Set proxy URL |
+| `devmode` | Toggle developer mode |
 | `update` | Update via git pull |
 | `shell` | Run shell command |
 | `help` | Show help |
@@ -144,7 +165,8 @@ Config is stored in `~/.gooningcli/config.json`:
   "rate_limit": 0.5,
   "auto_zip": false,
   "auto_cbz": false,
-  "notify": true
+  "notify": true,
+  "debug": false
 }
 ```
 
@@ -160,6 +182,29 @@ Config is stored in `~/.gooningcli/config.json`:
 | `auto_zip` | `false` | Auto-zip manga galleries after download |
 | `auto_cbz` | `false` | Auto-create CBZ archives after download |
 | `notify` | `true` | Android notifications (Termux only) |
+| `debug` | `false` | Developer mode (verbose logging) |
+
+---
+
+## Developer Mode
+
+Enable dev mode to get detailed debugging output:
+
+```bash
+# Via CLI flag
+python gooningcli.py --debug search "futa" -n 5
+
+# Via menu
+# Option [18] -> Toggle on/off
+
+# What it shows:
+#   [HTTP] GET https://nhentai.net/api/v2/search?query=futa -> 200 (145ms)
+#   [FILE] WRITE: /path/to/001.jpg (52847 bytes)
+#   [ERROR] HTTP 429 on search (attempt 2/3, 4000ms)
+#     Traceback (most recent call last):
+#       File "gooningcli.py", line 318, in retry_with_backoff
+#         ...
+```
 
 ---
 
@@ -180,8 +225,6 @@ Then run:
 
 ```bash
 python gooningcli.py batch
-# Or point directly:
-# Enter: my_downloads.txt
 ```
 
 ---
@@ -250,9 +293,13 @@ gooningCLI/
 The code is organized into modular classes:
 
 - `ConfigManager` - Handles all config, history, bookmarks, blacklist
+- `DLog` - Developer mode logger (only outputs when debug is enabled)
 - `NHentaiDownloader` - nhentai API v2 client with concurrent image download
 - `HanimeDownloader` - hanime.tv scraper
 - `HentaiHavenDownloader` - hentaihaven with yt-dlp integration
+- `Rule34Downloader` - rule34.xxx API client
+- `GelbooruDownloader` - gelbooru.com API client
+- `HitomiDownloader` - hitomi.la scraper
 - `NHentaiTagDownloader` - nhentai specific tag queries
 
 Each downloader implements `search_and_download(query, count, output_dir)`.
