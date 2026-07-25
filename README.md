@@ -76,7 +76,7 @@ A multi-site hentai content downloader CLI built for Termux. Download manga, dou
 
 ```bash
 # Clone the repo
-git clone https://github.com/or4acle/gooningCLI.git
+git clone https://github.com/StreliziaSystems/gooningCLI.git
 cd gooningCLI
 
 # Run setup
