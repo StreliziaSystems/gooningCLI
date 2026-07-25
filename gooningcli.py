@@ -54,7 +54,7 @@ except ImportError:
 # CONSTANTS
 # ============================================================
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 AUTHOR = "or4acle"
 APP_NAME = "gooningCLI"
 CONFIG_DIR = os.path.expanduser("~/.gooningcli")
@@ -63,6 +63,148 @@ HISTORY_FILE = os.path.join(CONFIG_DIR, "history.json")
 BOOKMARKS_FILE = os.path.join(CONFIG_DIR, "bookmarks.json")
 BLACKLIST_FILE = os.path.join(CONFIG_DIR, "blacklist.json")
 DEFAULT_DOWNLOAD_DIR = os.path.expanduser("~/gooningcli_downloads")
+
+# ============================================================
+# SAFETY BLOCKLIST - Hardcoded, cannot be removed by user
+# Blocks content involving minors, abuse, and extreme content
+# ============================================================
+
+SAFETY_BLOCKLIST = {
+    # ---------------------------------------------------------
+    # Minors / Underage / Youth
+    # ---------------------------------------------------------
+    "pedophile", "pedophilia", "minor", "minors", "underaged", "under-age", "under age",
+    "preteen", "pre-teen", "tween", "teenager", "teenagers",
+    "young", "younger", "child", "children", "childlike", "childish",
+    "kid", "kids", "kiddo", "schoolgirl", "schoolboy", "school kid", "schoolkid", "school-age",
+    "prepubescent", "pubescent", "juvenile",
+    "loli", "lolicon", "lolita", "rori", "rorikon",
+    "shota", "shotacon", "shouta", "shota-kon", "shotakon",
+    "elementary school", "middle school", "grade schooler", "kindergarten", "toddler",
+    "幼女", "幼児", "子供", "子ども", "児童", "未成年",
+    "少女", "少年", "女児", "男児", "小学生", "中学生", "高校生",
+    "ロリ", "ロリコン", "ショタ", "ショタコン",
+    "JK", "JC", "JS", "JD",  # Joshi Kousei, Chugakusei, Shougakusei, Daigakusei
+    "女子小学生", "女子中学生", "女子高生",
+    "未熟", "幼い", "年下", "メスガキ", "ガキ", "園児", "幼稚園",
+
+    # ---------------------------------------------------------
+    # Abuse / Non-consensual / Coercion / Mind Control
+    # ---------------------------------------------------------
+    "rape", "raped", "raping", "rapist", "rapefantasy",
+    "nonconsensual", "non-consensual", "non consent", "non-consent",
+    "noncon", "non-con", "dubcon", "dub-con",
+    "coercion", "coerced", "coercive",
+    "forced", "forceful", "forced sex", "forced oral", "forced anal",
+    "unwilling", "reluctant", "without consent", "no consent",
+    "assault", "sexual assault", "abuse", "abusive", "harassment",
+    "molest", "molested", "molesting", "molestation",
+    "grooming", "blackmail", "blackmailed", "extortion",
+    "kidnapping", "kidnapped", "abduction", "abducted",
+    "hostage", "captivity", "imprisoned",
+    "drugged", "drugging", "sedated", "sedation", "unconscious", "drunk",
+    "mind break", "mind control", "brainwashing", "hypnosis", "hypnotized", "corruption",
+    "somnophilia", "sleeping", "time stop", # Very common tags in doujinshi for non-con
+    "痴漢", "強姦", "レイプ", "陵辱", "凌辱", "輪姦",
+    "非同意", "同意なし", "無理やり", "強制", "強要",
+    "脅迫", "監禁", "誘拐", "拉致", "性的暴行", "性的虐待",
+    "睡眠薬", "昏睡", "薬漬け", "暴行",
+    "洗脳", "催眠", "精神崩壊", "悪堕ち", "時間停止", "睡眠姦", "寝取られ", "NTR",
+
+    # ---------------------------------------------------------
+    # Incest / Family Taboo
+    # ---------------------------------------------------------
+    "incest", "incestu", "inbred", "inbreeding",
+    "brother", "sister", "siblings", "sibling", "stepbrother", "stepsister",
+    "stepfather", "stepmother", "stepson", "stepdaughter",
+    "father", "mother", "daughter", "son", "mom", "dad", "mommy", "daddy",
+    "family", "relative", "relatives", "cousin", "aunt", "uncle", "niece", "nephew",
+    "taboo", "family taboo",
+    "近親相姦", "近親", "兄妹", "姉弟", "兄弟", "姉妹", "親子", "家族",
+    "義父", "義母", "義兄", "義姉", "義弟", "義妹", "従兄弟", "従姉妹",
+    "妹", "姉", "母", "娘", "兄", "弟", "姪", "甥", "お母さん", "お父さん",
+
+    # ---------------------------------------------------------
+    # Extreme / Disturbing / Gore
+    # ---------------------------------------------------------
+    "gore", "gory", "blood", "bloody", "snuff", "ryona", "guro",
+    "corpse", "cadaver", "dead", "death", "dead body",
+    "decapitation", "beheading", "dismemberment", "disembowelment",
+    "evisceration", "mutilation", "amputation", "amputee", "torture", "torturing",
+    "sadism", "sadist", "masochism", "masochist",
+    "necrophilia", "necrophilic", "necro",
+    "bestiality", "bestial", "zoophilia", "zoophilic", "animal", "dog", "horse", "pig",
+    "cannibalism", "cannibal", "cannibalistic", "vore", "voreophilia",
+    "asphyxiation", "strangulation", "choking", "breath play", "hanging",
+    "グロ", "流血", "血まみれ", "スナッフ", "リョナ",
+    "死体", "屍体", "腐乱", "斬首", "首切り", "切断", "ダルマ",
+    "解体", "内臓", "腸", "損壊", "四肢切断",
+    "死姦", "獣姦", "食人", "人肉", "丸呑み",
+    "拷問", "虐待", "残虐", "サディズム", "マゾヒズム", "異常性癖", "猟奇",
+    "首絞め", "窒息",
+
+    # ---------------------------------------------------------
+    # Bodily / Extreme Fetish
+    # ---------------------------------------------------------
+    "urine", "urination", "pee", "piss", "watersports", "urolagnia", "golden shower",
+    "defecation", "feces", "faeces", "poop", "shit", "scat", "coprophilia", "coprophagy",
+    "diaper", "diapers", "adult baby", "baby diaper",
+    "menstrual", "menstruation", "period blood",
+    "emesis", "vomit", "vomiting", "vomited", "barf", "retching",
+    "fart", "farting",
+    "enema", "laxative", "insects", "bugs", "worms",
+    "排泄", "尿", "おしっこ", "小便", "大便", "便", "糞尿",
+    "おむつ", "オムツ", "生理", "月経", "嘔吐", "ゲロ", "放屁",
+    "失禁", "スカトロ", "食糞", "飲尿", "黄金水", "浣腸", "下剤", "虫", "寄生",
+
+    # ---------------------------------------------------------
+    # Exploitation themes / Prostitution
+    # ---------------------------------------------------------
+    "slavery", "slave", "enslaved", "enslavement",
+    "trafficking", "human trafficking", "sex trafficking",
+    "prostitution", "prostitute", "pimping", "pimp",
+    "exploitation", "exploitative", "compensated dating", "sugar daddy",
+    "kidnap", "kidnapped", "kidnapper",
+    "人身売買", "売春", "買春", "奴隷", "搾取", "援助交際", "援交", "パパ活", "JKビジネス",
+
+    # ---------------------------------------------------------
+    # Age regression / Infantilization
+    # ---------------------------------------------------------
+    "ageplay", "age_play", "age regression", "age_regression",
+    "regression", "infantilization", "infantilize", "infantilized",
+    "baby", "infant", "toddler", "newborn",
+    "diaper lover", "diaperfetish", "adult baby",
+    "退行", "幼児化", "赤ちゃん", "乳児", "幼児", "ベイビー", "アダルトベビー",
+
+    # ---------------------------------------------------------
+    # Self-harm / Suicide
+    # ---------------------------------------------------------
+    "suicide", "kill myself", "self-harm", "self harm",
+    "cutting", "cut myself", "wrist cutting", "overdose", "od",
+    "自殺", "自傷", "リスカ", "リストカット", "オーバードーズ", "OD",
+
+    # ---------------------------------------------------------
+    # Extra Japanese moderation & censorship tags
+    # ---------------------------------------------------------
+    "強制わいせつ", "児童ポルノ", "児童淫行",
+    "猥褻", "わいせつ", "アナル", "肛門", "緊縛", "拘束", "無修正"
+}
+
+def _is_safety_blocked(tags: list[str] = None, title: str = "", url: str = "") -> bool:
+    """Check content against the hardcoded safety blocklist. Cannot be bypassed."""
+    check_strings = []
+    if tags:
+        check_strings.extend(t.lower().replace(" ", "_").replace("-", "_") for t in tags)
+    if title:
+        check_strings.append(title.lower())
+    if url:
+        check_strings.append(url.lower())
+    for text in check_strings:
+        for blocked in SAFETY_BLOCKLIST:
+            if blocked in text:
+                DLog.info(f"Safety filter triggered: '{blocked}' in '{text[:60]}'")
+                return True
+    return False
 
 SPLASH_TEXTS = [
     "Time to do some research...",
@@ -541,6 +683,11 @@ class NHentaiDownloader:
         title = re.sub(r'[\\/:*?"<>|]', '_', title)[:80]
         tags = [t.get("name", "") for t in gallery.get("tags", [])]
 
+        if _is_safety_blocked(tags=tags, title=title):
+            cprint(f"  [!] Blocked (safety): {title}", THEME["warning"])
+            DLog.info(f"Safety blocked nhentai gallery {gallery_id}: {title}")
+            return False
+
         if cfg.is_blacklisted(tags=tags, gallery_id=str(gallery_id)):
             cprint(f"  [!] Skipped (blacklisted): {title}", THEME["warning"])
             return False
@@ -791,6 +938,10 @@ class HanimeDownloader:
         for item in results:
             if downloaded >= count:
                 break
+            if _is_safety_blocked(title=item.get("title", "")):
+                cprint(f"  [!] Blocked (safety): {item.get('title', '')[:50]}", THEME["warning"])
+                DLog.info(f"Safety blocked hanime: {item.get('title', '')}")
+                continue
             time.sleep(self.rate_limit)
             if self.download_video(item["slug"], output_dir):
                 downloaded += 1
@@ -878,6 +1029,10 @@ class HentaiHavenDownloader:
 
         downloaded = 0
         for item in results[:count]:
+            if _is_safety_blocked(title=item.get("title", "")):
+                cprint(f"  [!] Blocked (safety): {item.get('title', '')[:50]}", THEME["warning"])
+                DLog.info(f"Safety blocked hentaihaven: {item.get('title', '')}")
+                continue
             time.sleep(self.rate_limit)
             url = item.get("url", f"{self.BASE_URL}/{item['slug']}/")
             cprint(f"  Downloading: {item['title'][:50]}", THEME["accent"])
@@ -924,6 +1079,11 @@ class NHentaiTagDownloader(NHentaiDownloader):
         self.tag_name = tag_name
 
     def search_and_download(self, query: str, count: int, output_dir: str, sort: str = ""):
+        if _is_safety_blocked(tags=[self.tag_slug, self.tag_name]):
+            cprint(f"  [!] Blocked (safety): tag '{self.tag_name}' is not allowed", THEME["warning"])
+            DLog.info(f"Safety blocked nhentai tag: {self.tag_name}")
+            return
+
         cprint(f"\n  [nhentai:{self.tag_name}] Looking up tag...", THEME["header"])
         try:
             r = self.session.get(f"{self.API_BASE}/tags/tag/{self.tag_slug}", timeout=15)
@@ -1075,6 +1235,11 @@ class Rule34Downloader:
                 if t:
                     tags_set.add(t)
 
+        if _is_safety_blocked(tags=list(tags_set)):
+            cprint("  [!] Blocked (safety filter)", THEME["warning"])
+            DLog.info("Safety blocked rule34 search results")
+            return
+
         if cfg.is_blacklisted(tags=list(tags_set)):
             cprint("  [!] Results match blacklisted tags", THEME["warning"])
             return
@@ -1214,6 +1379,11 @@ class GelbooruDownloader:
                 if t:
                     all_tags.add(t)
 
+        if _is_safety_blocked(tags=list(all_tags)):
+            cprint("  [!] Blocked (safety filter)", THEME["warning"])
+            DLog.info("Safety blocked gelbooru search results")
+            return
+
         if cfg.is_blacklisted(tags=list(all_tags)):
             cprint("  [!] Results match blacklisted tags", THEME["warning"])
             return
@@ -1331,6 +1501,11 @@ class DanbooruDownloader:
                 if t:
                     all_tags.add(t)
 
+        if _is_safety_blocked(tags=list(all_tags)):
+            cprint("  [!] Blocked (safety filter)", THEME["warning"])
+            DLog.info("Safety blocked danbooru search results")
+            return
+
         if cfg.is_blacklisted(tags=list(all_tags)):
             cprint("  [!] Results match blacklisted tags", THEME["warning"])
             return
@@ -1447,6 +1622,11 @@ class KonachanDownloader:
             for t in p.get("tags", "").split():
                 if t:
                     all_tags.add(t)
+
+        if _is_safety_blocked(tags=list(all_tags)):
+            cprint("  [!] Blocked (safety filter)", THEME["warning"])
+            DLog.info("Safety blocked konachan search results")
+            return
 
         if cfg.is_blacklisted(tags=list(all_tags)):
             cprint("  [!] Results match blacklisted tags", THEME["warning"])
@@ -1624,6 +1804,12 @@ class HitomiDownloader:
             time.sleep(self.rate_limit)
             gallery_id = item["id"]
             title = re.sub(r'[\\/:*?"<>|]', '_', item["title"])[:80]
+
+            if _is_safety_blocked(title=title):
+                cprint(f"  [!] Blocked (safety): {title}", THEME["warning"])
+                DLog.info(f"Safety blocked hitomi gallery {gallery_id}: {title}")
+                continue
+
             images = self.get_image_urls(gallery_id)
 
             if not images:
@@ -1707,6 +1893,12 @@ def cmd_random():
     try:
         gallery = dl.get_random()
         if gallery:
+            title = gallery.get("title", {}).get("english") or \
+                    gallery.get("title", {}).get("pretty") or ""
+            tags = [t.get("name", "") for t in gallery.get("tags", [])]
+            if _is_safety_blocked(tags=tags, title=title):
+                cprint("  [!] Random gallery blocked (safety filter). Try again.", THEME["warning"])
+                return
             gid = gallery.get("id")
             if gid:
                 dl.download_gallery(gid, output_dir)
