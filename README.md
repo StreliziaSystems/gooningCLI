@@ -333,15 +333,3 @@ class MySiteDownloader:
 ```
 
 Then add it to `_download_from_site()` and `SITES`.
-
----
-
-## Disclaimer
-
-This tool is provided for educational and research purposes only. Users are responsible for complying with the terms of service of any site they access and all applicable laws.
-
----
-
-## License
-
-MIT
