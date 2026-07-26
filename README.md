@@ -333,3 +333,7 @@ class MySiteDownloader:
 ```
 
 Then add it to `_download_from_site()` and `SITES`.
+
+---
+
+Happy gooning, ya freaks! :D
