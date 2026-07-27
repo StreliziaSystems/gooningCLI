@@ -9,7 +9,7 @@
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝╚══════╝╚═╝
 ```
 
-**v2.3.0** | made by **or4acle**
+**v3.1.0** | made by **or4acle**
 
 > *For educational purposes only.*
 
