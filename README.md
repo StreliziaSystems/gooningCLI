@@ -17,6 +17,18 @@ A multi-site hentai content downloader CLI built for Termux. Download manga, dou
 
 ---
 
+## Disclaimer & Liability Notice
+
+This project, **gooningCLI**, was created strictly for **educational and learning purposes** by its developer. It serves as a practical exercise in Python programming, API integration, and web scraping.
+
+**StreliziaSystems** and its owner, **or4acle**, are NOT responsible for any media, data, or material downloaded, accessed, or stored using this software. The tool merely acts as an automated client; what you choose to search for and download is entirely your own responsibility as the end-user.
+
+While we have put genuine effort into implementing **Safety Filters** (Blocklists) to prevent the fetching of sensitive, illegal, or disturbing content, no system is completely bulletproof. We acknowledge that loopholes and bypasses can be discovered and abused by malicious users. We strongly condemn the download of prohibited materials, but as this is an open-source tool executed locally on your machine, we cannot monitor, control, or be held liable for how it is ultimately used.
+
+**By using this software, you agree to take full responsibility for your actions.**
+
+---
+
 ## Supported Sites
 
 | Site | Type | Method | Auth Required |
@@ -324,12 +336,4 @@ Then add it to `_download_from_site()` and `SITES`.
 
 ---
 
-## Disclaimer
-
-This tool is provided for educational and research purposes only. Users are responsible for complying with the terms of service of any site they access and all applicable laws.
-
----
-
-## License
-
-MIT
+Happy gooning, ya freaks! :D
